@@ -1,0 +1,14 @@
+.git
+.gitignore
+.claude
+*.md
+.venv
+venv
+__pycache__
+*.pyc
+*.pyo
+sessions.db
+sessions.db-journal
+.env
+Dockerfile
+.dockerignore

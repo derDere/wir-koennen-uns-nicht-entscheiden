@@ -14,6 +14,10 @@ A group decision-making web application where members anonymously submit options
 - Browser local storage for member ID and session ID persistence
 - Dependencies in requirements.txt
 
+**See [FLET_GUIDE.md](./FLET_GUIDE.md) for detailed Flet framework reference.**
+
+> **Important:** Always read FLET_GUIDE.md before writing Flet code. If encountering Flet-related errors or unexpected behavior, perform a web search for up-to-date solutions as the framework evolves.
+
 ## Development Commands
 
 ```bash
