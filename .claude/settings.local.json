@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "WebSearch",
-      "WebFetch(domain:flet.dev)"
+      "WebFetch(domain:flet.dev)",
+      "Bash(flet run:*)"
     ]
   }
 }
