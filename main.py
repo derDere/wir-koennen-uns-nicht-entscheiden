@@ -621,20 +621,20 @@ async def main(page: ft.Page):
                     ft.ElevatedButton("Roll Next", icon=ft.Icons.SKIP_NEXT, on_click=do_roll_next),
                 ], alignment=ft.MainAxisAlignment.CENTER, spacing=10),
                 ft.Container(height=10),
-                ft.Row([
-                    ft.ElevatedButton(
-                        "Start Fresh",
-                        icon=ft.Icons.RESTART_ALT,
-                        on_click=do_start_fresh,
-                        bgcolor=ft.Colors.ORANGE_400
-                    ),
-                    ft.ElevatedButton(
-                        "View Groups",
-                        icon=ft.Icons.LIST_ALT,
-                        on_click=do_view_groups
-                    )
-                ], alignment=ft.MainAxisAlignment.CENTER, spacing=10)
+                ft.ElevatedButton(
+                    "Start Fresh",
+                    icon=ft.Icons.RESTART_ALT,
+                    on_click=do_start_fresh,
+                    bgcolor=ft.Colors.ORANGE_400
+                )
             ]
+
+        # View Groups button (available to everyone)
+        view_groups_btn = ft.ElevatedButton(
+            "View Groups",
+            icon=ft.Icons.LIST_ALT,
+            on_click=do_view_groups
+        )
 
         # Restart vote status
         restart_status = []
@@ -654,11 +654,14 @@ async def main(page: ft.Page):
             *creator_controls,
             *restart_status,
             ft.Container(height=20),
-            ft.ElevatedButton(
-                "Export All Items",
-                icon=ft.Icons.DOWNLOAD,
-                on_click=do_export
-            ),
+            ft.Row([
+                view_groups_btn,
+                ft.ElevatedButton(
+                    "Export All Items",
+                    icon=ft.Icons.DOWNLOAD,
+                    on_click=do_export
+                ),
+            ], alignment=ft.MainAxisAlignment.CENTER, spacing=10),
             ft.Container(height=20),
             leave_session_button()
         ]
