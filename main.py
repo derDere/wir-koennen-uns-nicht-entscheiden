@@ -4,6 +4,7 @@ Wir können uns nicht entscheiden - Group Decision Making App
 
 import flet as ft
 import base64
+import asyncio
 import session as sess
 import database as db
 
@@ -13,7 +14,7 @@ STORAGE_MEMBER_ID = f"{STORAGE_PREFIX}member_id"
 STORAGE_SESSION_ID = f"{STORAGE_PREFIX}session_id"
 
 
-def main(page: ft.Page):
+async def main(page: ft.Page):
     page.title = "Wir können uns nicht entscheiden"
     page.padding = 20
     page.spacing = 10
@@ -31,10 +32,7 @@ def main(page: ft.Page):
     accepted_items_set = set()
 
     # Theme handling
-    def get_system_theme():
-        return ft.ThemeMode.SYSTEM
-
-    page.theme_mode = get_system_theme()
+    page.theme_mode = ft.ThemeMode.SYSTEM
 
     def toggle_theme(e):
         if page.theme_mode == ft.ThemeMode.LIGHT:
@@ -52,11 +50,17 @@ def main(page: ft.Page):
 
     # Session code display
     session_code_text = ft.Text("", size=16, weight=ft.FontWeight.BOLD)
+
+    async def copy_session_code(e):
+        if current_session_id:
+            await ft.Clipboard().set(current_session_id)
+            show_message("Session code copied!")
+
     copy_code_btn = ft.IconButton(
         icon=ft.Icons.COPY,
         tooltip="Copy session code",
         visible=False,
-        on_click=lambda e: page.set_clipboard(current_session_id) if current_session_id else None
+        on_click=copy_session_code
     )
 
     session_code_row = ft.Row(
@@ -93,22 +97,22 @@ def main(page: ft.Page):
         page.update()
 
     # PubSub message handler
-    def on_pubsub_message(msg):
+    def on_pubsub_message(topic, msg):
         nonlocal selected_result
         if isinstance(msg, dict):
             action = msg.get("action")
             if action == "refresh":
-                refresh_ui()
+                page.run_task(refresh_ui)
             elif action == "phase_changed":
-                refresh_ui()
+                page.run_task(refresh_ui)
             elif action == "result_selected":
                 selected_result = msg.get("item")
-                refresh_ui()
+                page.run_task(refresh_ui)
             elif action == "restart_vote_update":
-                refresh_ui()
+                page.run_task(refresh_ui)
             elif action == "session_reset":
                 selected_result = None
-                refresh_ui()
+                page.run_task(refresh_ui)
 
     def subscribe_to_session(session_id: str):
         page.pubsub.subscribe_topic(session_id, on_pubsub_message)
@@ -122,7 +126,7 @@ def main(page: ft.Page):
             page.pubsub.send_all_on_topic(current_session_id, msg)
 
     # Landing page
-    def show_landing():
+    async def show_landing():
         nonlocal current_session_id, current_member_id
 
         session_input = ft.TextField(
@@ -133,40 +137,40 @@ def main(page: ft.Page):
             width=200
         )
 
-        def create_session(e):
+        async def create_session(e):
             nonlocal current_session_id, current_member_id
             member_id = sess.generate_member_id()
             session_id = sess.create_session(member_id)
             if session_id:
                 current_session_id = session_id
                 current_member_id = member_id
-                page.client_storage.set(STORAGE_MEMBER_ID, member_id)
-                page.client_storage.set(STORAGE_SESSION_ID, session_id)
+                await page.shared_preferences.set(STORAGE_MEMBER_ID, member_id)
+                await page.shared_preferences.set(STORAGE_SESSION_ID, session_id)
                 subscribe_to_session(session_id)
-                show_session()
+                await show_session()
             else:
                 show_message("Failed to create session", True)
 
-        def join_session(e):
+        async def join_session(e):
             nonlocal current_session_id, current_member_id
             code = session_input.value.strip().upper()
             if len(code) != 6:
                 show_message("Please enter a valid 6-character code", True)
                 return
 
-            member_id = page.client_storage.get(STORAGE_MEMBER_ID)
+            member_id = await page.shared_preferences.get(STORAGE_MEMBER_ID)
             if not member_id:
                 member_id = sess.generate_member_id()
-                page.client_storage.set(STORAGE_MEMBER_ID, member_id)
+                await page.shared_preferences.set(STORAGE_MEMBER_ID, member_id)
 
             result = sess.join_session(code, member_id)
             if result["success"]:
                 current_session_id = code
                 current_member_id = member_id
-                page.client_storage.set(STORAGE_SESSION_ID, code)
+                await page.shared_preferences.set(STORAGE_SESSION_ID, code)
                 subscribe_to_session(code)
                 broadcast_to_session({"action": "refresh"})
-                show_session()
+                await show_session()
             else:
                 show_message(result.get("error", "Failed to join session"), True)
 
@@ -198,17 +202,17 @@ def main(page: ft.Page):
         page.update()
 
     # Session view
-    def show_session():
+    async def show_session():
         nonlocal selected_result
 
         if not current_session_id or not current_member_id:
-            show_landing()
+            await show_landing()
             return
 
         state = sess.get_session_state(current_session_id, current_member_id)
         if "error" in state:
-            page.client_storage.remove(STORAGE_SESSION_ID)
-            show_landing()
+            await page.shared_preferences.remove(STORAGE_SESSION_ID)
+            await show_landing()
             return
 
         # Update session code display
@@ -221,21 +225,21 @@ def main(page: ft.Page):
         phase = state["phase"]
 
         if state["is_observer"]:
-            show_observer_view(state)
+            await show_observer_view(state)
         elif phase == sess.PHASE_ADDING:
-            show_adding_phase(state)
+            await show_adding_phase(state)
         elif phase == sess.PHASE_ACCEPTING:
-            show_accepting_phase(state)
+            await show_accepting_phase(state)
         elif phase == sess.PHASE_RESULT:
-            show_result_phase(state)
+            await show_result_phase(state)
 
         page.update()
 
-    def refresh_ui():
-        show_session()
+    async def refresh_ui():
+        await show_session()
 
     # Observer view
-    def show_observer_view(state):
+    async def show_observer_view(state):
         content.controls = [
             ft.Container(height=30),
             ft.Icon(ft.Icons.VISIBILITY, size=50, color=ft.Colors.GREY),
@@ -249,7 +253,7 @@ def main(page: ft.Page):
         ]
 
     # Adding phase
-    def show_adding_phase(state):
+    async def show_adding_phase(state):
         nonlocal accepted_items_set
         accepted_items_set = set()  # Reset for new round
 
@@ -284,31 +288,35 @@ def main(page: ft.Page):
         item_input = ft.TextField(
             label="Add an option",
             hint_text="Type something and press Enter",
-            on_submit=lambda e: add_item(),
             expand=True,
-            disabled=state["is_ready"]
+            disabled=state["is_ready"],
+            autofocus=True
         )
 
-        def add_item():
-            if not item_input.value.strip():
+        async def add_item(e=None):
+            if not item_input.value or not item_input.value.strip():
                 return
             result = sess.add_item(current_session_id, current_member_id, item_input.value)
             if result["success"]:
                 state["my_items"] = result["items"]
                 item_input.value = ""
                 update_items_list()
-                broadcast_to_session({"action": "refresh"})
+                # Don't broadcast - adding items only affects our own list
             else:
                 show_message(result.get("error", "Failed to add item"), True)
-            page.update()
+                page.update()
+            await asyncio.sleep(0.1)
+            await item_input.focus()
+
+        item_input.on_submit = add_item
 
         add_btn = ft.IconButton(
             icon=ft.Icons.ADD,
-            on_click=lambda e: add_item(),
+            on_click=add_item,
             disabled=state["is_ready"]
         )
 
-        def toggle_ready(e):
+        async def toggle_ready(e):
             new_ready = not state["is_ready"]
             result = sess.set_ready(current_session_id, current_member_id, new_ready)
             if result["success"]:
@@ -319,7 +327,7 @@ def main(page: ft.Page):
                     broadcast_to_session({"action": "phase_changed", "phase": new_phase})
                 else:
                     broadcast_to_session({"action": "refresh"})
-                refresh_ui()
+                await refresh_ui()
             else:
                 show_message(result.get("error", "Failed to update ready status"), True)
 
@@ -361,7 +369,7 @@ def main(page: ft.Page):
         ]
 
     # Accepting phase
-    def show_accepting_phase(state):
+    async def show_accepting_phase(state):
         nonlocal accepted_items_set
 
         items_for_acceptance = sess.get_items_for_acceptance(current_session_id, current_member_id)
@@ -422,7 +430,7 @@ def main(page: ft.Page):
             ft.TextButton("Toggle All", on_click=toggle_all, disabled=state["is_ready"])
         ], alignment=ft.MainAxisAlignment.CENTER)
 
-        def toggle_ready(e):
+        async def toggle_ready(e):
             new_ready = not state["is_ready"]
             result = sess.set_ready(current_session_id, current_member_id, new_ready)
             if result["success"]:
@@ -435,7 +443,7 @@ def main(page: ft.Page):
                     broadcast_to_session({"action": "result_selected", "item": result_item})
                 else:
                     broadcast_to_session({"action": "refresh"})
-                refresh_ui()
+                await refresh_ui()
             else:
                 show_message(result.get("error", "Failed to update ready status"), True)
 
@@ -483,7 +491,7 @@ def main(page: ft.Page):
         ]
 
     # Result phase
-    def show_result_phase(state):
+    async def show_result_phase(state):
         nonlocal selected_result
 
         if not selected_result:
@@ -506,20 +514,20 @@ def main(page: ft.Page):
             width=get_content_width()
         )
 
-        def do_reroll(e):
+        async def do_reroll(e):
             nonlocal selected_result
             selected_result = sess.reroll(current_session_id)
             broadcast_to_session({"action": "result_selected", "item": selected_result})
-            refresh_ui()
+            await refresh_ui()
 
-        def do_roll_next(e):
+        async def do_roll_next(e):
             nonlocal selected_result
             if selected_result:
                 selected_result = sess.roll_next(current_session_id, selected_result)
                 broadcast_to_session({"action": "result_selected", "item": selected_result})
-                refresh_ui()
+                await refresh_ui()
 
-        def do_start_fresh(e):
+        async def do_start_fresh(e):
             result = sess.vote_restart(current_session_id, current_member_id)
             if result["all_voted"]:
                 nonlocal selected_result
@@ -528,14 +536,80 @@ def main(page: ft.Page):
                 broadcast_to_session({"action": "session_reset"})
             else:
                 broadcast_to_session({"action": "restart_vote_update"})
-            refresh_ui()
+            await refresh_ui()
+
+        # Export dialog
+        export_text_field = ft.TextField(
+            value="",
+            multiline=True,
+            min_lines=10,
+            max_lines=15,
+            read_only=True,
+            width=400
+        )
+
+        async def copy_export_text(e):
+            await ft.Clipboard().set(export_text_field.value)
+            show_message("Copied to clipboard!")
+
+        def close_export_dialog(e):
+            export_dialog.open = False
+            page.update()
+
+        export_dialog = ft.AlertDialog(
+            title=ft.Text("All Items"),
+            content=ft.Column([
+                export_text_field,
+                ft.Container(height=10),
+                ft.ElevatedButton("Copy All", icon=ft.Icons.COPY, on_click=copy_export_text)
+            ], tight=True, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+            actions=[ft.TextButton("Close", on_click=close_export_dialog)]
+        )
 
         def do_export(e):
             all_items = sess.get_all_items(current_session_id)
-            export_content = "\n".join(all_items)
-            # Create download using data URL
-            b64_content = base64.b64encode(export_content.encode()).decode()
-            page.launch_url(f"data:text/plain;base64,{b64_content}")
+            export_text_field.value = "\n".join(all_items)
+            page.overlay.append(export_dialog)
+            export_dialog.open = True
+            page.update()
+
+        # View groups dialog
+        groups_text_field = ft.TextField(
+            value="",
+            multiline=True,
+            min_lines=10,
+            max_lines=15,
+            read_only=True,
+            width=400
+        )
+
+        def close_groups_dialog(e):
+            groups_dialog.open = False
+            page.update()
+
+        groups_dialog = ft.AlertDialog(
+            title=ft.Text("Acceptance Groups"),
+            content=groups_text_field,
+            actions=[ft.TextButton("Close", on_click=close_groups_dialog)]
+        )
+
+        def do_view_groups(e):
+            groups = sess.group_items_by_acceptance(current_session_id)
+            members = db.get_active_members(current_session_id)
+            member_count = len(members)
+
+            lines = []
+            for acceptors, items in sorted(groups.items(), key=lambda x: -len(x[0])):
+                accept_count = len(acceptors)
+                lines.append(f"--- Accepted by {accept_count} of {member_count} members ---")
+                for item in items:
+                    lines.append(f"  {item}")
+                lines.append("")
+
+            groups_text_field.value = "\n".join(lines) if lines else "No groups available"
+            page.overlay.append(groups_dialog)
+            groups_dialog.open = True
+            page.update()
 
         # Creator controls
         creator_controls = []
@@ -547,12 +621,19 @@ def main(page: ft.Page):
                     ft.ElevatedButton("Roll Next", icon=ft.Icons.SKIP_NEXT, on_click=do_roll_next),
                 ], alignment=ft.MainAxisAlignment.CENTER, spacing=10),
                 ft.Container(height=10),
-                ft.ElevatedButton(
-                    "Start Fresh",
-                    icon=ft.Icons.RESTART_ALT,
-                    on_click=do_start_fresh,
-                    bgcolor=ft.Colors.ORANGE_400
-                )
+                ft.Row([
+                    ft.ElevatedButton(
+                        "Start Fresh",
+                        icon=ft.Icons.RESTART_ALT,
+                        on_click=do_start_fresh,
+                        bgcolor=ft.Colors.ORANGE_400
+                    ),
+                    ft.ElevatedButton(
+                        "View Groups",
+                        icon=ft.Icons.LIST_ALT,
+                        on_click=do_view_groups
+                    )
+                ], alignment=ft.MainAxisAlignment.CENTER, spacing=10)
             ]
 
         # Restart vote status
@@ -583,13 +664,13 @@ def main(page: ft.Page):
         ]
 
     def leave_session_button():
-        def leave(e):
+        async def leave(e):
             nonlocal current_session_id, current_member_id, selected_result
             unsubscribe_from_session()
-            page.client_storage.remove(STORAGE_SESSION_ID)
+            await page.shared_preferences.remove(STORAGE_SESSION_ID)
             current_session_id = None
             selected_result = None
-            show_landing()
+            await show_landing()
 
         return ft.TextButton(
             "Leave Session",
@@ -598,11 +679,11 @@ def main(page: ft.Page):
         )
 
     # Check for existing session on load
-    def check_existing_session():
+    async def check_existing_session():
         nonlocal current_session_id, current_member_id
 
-        member_id = page.client_storage.get(STORAGE_MEMBER_ID)
-        session_id = page.client_storage.get(STORAGE_SESSION_ID)
+        member_id = await page.shared_preferences.get(STORAGE_MEMBER_ID)
+        session_id = await page.shared_preferences.get(STORAGE_SESSION_ID)
 
         if member_id and session_id:
             result = sess.join_session(session_id, member_id)
@@ -610,15 +691,15 @@ def main(page: ft.Page):
                 current_session_id = session_id
                 current_member_id = member_id
                 subscribe_to_session(session_id)
-                show_session()
+                await show_session()
                 return
 
         if not member_id:
             member_id = sess.generate_member_id()
-            page.client_storage.set(STORAGE_MEMBER_ID, member_id)
+            await page.shared_preferences.set(STORAGE_MEMBER_ID, member_id)
             current_member_id = member_id
 
-        show_landing()
+        await show_landing()
 
     # Cleanup expired sessions periodically
     db.cleanup_expired_sessions()
@@ -633,7 +714,7 @@ def main(page: ft.Page):
     def on_resize(e):
         page.update()
 
-    page.on_resized = on_resize
+    page.on_resize = on_resize
 
     # Build page
     page.add(
@@ -643,11 +724,11 @@ def main(page: ft.Page):
     )
 
     # Initialize
-    check_existing_session()
+    await check_existing_session()
 
 
 # For ASGI deployment
-app = ft.app(main, export_asgi_app=True)
+app = ft.run(main, export_asgi_app=True)
 
 if __name__ == "__main__":
-    ft.app(main)
+    ft.run(main)
